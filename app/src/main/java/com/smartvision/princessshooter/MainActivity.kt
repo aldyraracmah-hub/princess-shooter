@@ -1,41 +1,36 @@
-package com.smartvision.princessshooter
+package com.example.petulanganpermen
 
 import android.annotation.SuppressLint
 import android.os.Bundle
-import android.webkit.WebSettings
+import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.ComponentActivity
-import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
 
-class MainActivity : ComponentActivity() {
-
-    private lateinit var webView: WebView
-
+class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        webView = WebView(this)
-        setContentView(webView)
-
+        val webView = findViewById<WebView>(R.id.webView)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = true
-            mediaPlaybackRequiresUserGesture = false
-            cacheMode = WebSettings.LOAD_NO_CACHE
+            allowContentAccess = true
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            @Suppress("DEPRECATION")
+            allowUniversalAccessFromFileURLs = true
         }
-
-        webView.webViewClient = WebViewClient()
-        webView.loadUrl("file:///android_asset/game.html")
-
-        // Handle tombol back (cara baru, tidak deprecated)
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (webView.canGoBack()) webView.goBack()
-                else finish()
+        webView.setBackgroundColor(0xFFFFB3D1.toInt())
+        webView.visibility = View.INVISIBLE
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                webView.visibility = View.VISIBLE
             }
-        })
+        }
+        webView.loadUrl("file:///android_asset/game.html")
     }
 }
