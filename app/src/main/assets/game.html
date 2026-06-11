@@ -202,17 +202,17 @@
     0%,100%{transform:scale(1)}
     50%{transform:scale(1.1);filter:drop-shadow(0 0 6px gold)}
   }
+  @keyframes hintArrow {
+    0%{transform:translate(-50%,-50%) scale(1);}
+    100%{transform:translate(-50%,-50%) scale(1.3);}
+  }
   .cell canvas {
     border-radius:10px;
     display:block;
   }
-  /* Frozen overlay */
-  .cell.frozen::after {
-    content:'🧊';
-    position:absolute;
-    font-size:70%;
-    top:2px; left:2px;
-    pointer-events:none;
+  /* Frozen overlay — handled in canvas now */
+  .cell.frozen {
+    box-shadow: inset 0 0 8px rgba(100,180,255,0.6);
   }
 
   /* ===== PRINCESS AREA ===== */
@@ -230,9 +230,25 @@
   }
   .next-cupcake {
     display:flex; flex-direction:column; align-items:center; gap:4px;
+    opacity: 0.7;
+  }
+  .current-cupcake {
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    background: rgba(255,255,255,0.85);
+    border: 3px solid #e91e8c;
+    border-radius: 14px;
+    padding: 5px 7px;
+    box-shadow: 0 0 12px rgba(233,30,140,0.5);
+    animation: currentPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes currentPulse {
+    0%,100%{ box-shadow: 0 0 10px rgba(233,30,140,0.4); }
+    50%{ box-shadow: 0 0 20px rgba(233,30,140,0.8); }
   }
   .next-label { font-size:10px; color:#888; font-weight:800; text-transform:uppercase; }
+  .current-cupcake .next-label { color: #e91e8c; font-size: 11px; }
   .next-cupcake canvas { border-radius:8px; }
+  .current-cupcake canvas { border-radius:8px; }
 
   /* ===== SCORE POPUP ===== */
   .score-popup {
@@ -388,10 +404,14 @@
 
     <!-- PRINCESS -->
     <div class="princess-area">
+      <div class="current-cupcake">
+        <div class="next-label">Sekarang</div>
+        <canvas id="current-canvas" width="48" height="48"></canvas>
+      </div>
       <canvas id="princess-canvas" width="80" height="110"></canvas>
       <div class="next-cupcake">
-        <div class="next-label">Next</div>
-        <canvas id="next-canvas" width="44" height="44"></canvas>
+        <div class="next-label">Berikutnya</div>
+        <canvas id="next-canvas" width="36" height="36"></canvas>
       </div>
     </div>
   </div>
@@ -420,6 +440,29 @@
 </div>
 
 <script>
+// Polyfill roundRect for older WebView/Android
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    var radius = typeof r === 'number' ? r : (Array.isArray(r) ? r[0] : 0);
+    radius = Math.min(radius, Math.abs(w)/2, Math.abs(h)/2);
+    var x2 = x + w, y2 = y + h;
+    if(w < 0){ var tmp=x; x=x2; x2=tmp; }
+    if(h < 0){ var tmp2=y; y=y2; y2=tmp2; }
+    this.beginPath();
+    this.moveTo(x + radius, y);
+    this.lineTo(x2 - radius, y);
+    this.quadraticCurveTo(x2, y, x2, y + radius);
+    this.lineTo(x2, y2 - radius);
+    this.quadraticCurveTo(x2, y2, x2 - radius, y2);
+    this.lineTo(x + radius, y2);
+    this.quadraticCurveTo(x, y2, x, y2 - radius);
+    this.lineTo(x, y + radius);
+    this.quadraticCurveTo(x, y, x + radius, y);
+    this.closePath();
+    return this;
+  };
+}
+
 // =============================================
 //  CUPCAKE DRAWING ENGINE
 // =============================================
@@ -528,16 +571,46 @@ function drawCupcake(ctx, x, y, size, colorIdx, state='normal', frozen=false) {
   ctx.arc(0, -s*.05, s*.06, 0, Math.PI*2);
   ctx.fill();
 
-  // Frozen overlay
+  // Frozen overlay — prominent ice crystal effect
   if(frozen) {
-    ctx.fillStyle='rgba(140,200,255,.5)';
+    // Blue-white ice cover over whole cupcake
+    ctx.fillStyle='rgba(180,230,255,.55)';
     ctx.beginPath();
-    ctx.arc(0, -bh - s*.22, s*.38, 0, Math.PI*2);
+    ctx.arc(0, -bh - s*.22, s*.42, 0, Math.PI*2);
     ctx.fill();
-    ctx.fillStyle='rgba(200,230,255,.3)';
+    ctx.fillStyle='rgba(180,230,255,.4)';
     ctx.beginPath();
-    ctx.roundRect(-bw/2, 0, bw, -bh, 4);
+    ctx.roundRect(-bw/2, -bh, bw, bh+2, 4);
     ctx.fill();
+
+    // Ice cracks / crystal lines
+    ctx.strokeStyle='rgba(200,240,255,.9)';
+    ctx.lineWidth=1.5;
+    // Snowflake center on frosting
+    const fx=0, fy=-bh-s*.22;
+    for(let i=0;i<6;i++){
+      const a=(i/6)*Math.PI*2;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx+Math.cos(a)*s*.28, fy+Math.sin(a)*s*.28);
+      ctx.stroke();
+      // Branch
+      const mx=fx+Math.cos(a)*s*.16, my=fy+Math.sin(a)*s*.16;
+      ctx.beginPath();
+      ctx.moveTo(mx, my);
+      ctx.lineTo(mx+Math.cos(a+1)*s*.1, my+Math.sin(a+1)*s*.1);
+      ctx.stroke();
+    }
+    // White sparkle dots
+    ctx.fillStyle='rgba(255,255,255,.9)';
+    [[0,-bh-s*.45],[s*.18,-bh-s*.1],[-s*.2,-bh-s*.15]].forEach(([dx,dy])=>{
+      ctx.beginPath(); ctx.arc(dx,dy,s*.04,0,Math.PI*2); ctx.fill();
+    });
+    // 🧊 text on base
+    ctx.font=`${s*.28}px serif`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText('🧊', 0, -bh*0.45);
   }
 
   ctx.restore();
@@ -924,6 +997,7 @@ let activePowerup = null;
 let powerupInventory = { rainbow:3, bomb:2, roller:2 };
 let frozenCells = new Set(); // "r,c" format
 let nextCupcakeColor = 0;
+let currentCupcakeColor = 0;
 
 // Touch drag support
 let touchStart = null;
@@ -931,26 +1005,21 @@ let touchStart = null;
 function initGrid() {
   grid = [];
   frozenCells.clear();
+  // Top FILLED_ROWS rows have cupcakes, rest are empty (shooting area)
+  const FILLED_ROWS = 5;
   for(let r=0;r<ROWS;r++){
     grid[r]=[];
     for(let c=0;c<COLS;c++){
-      grid[r][c] = Math.floor(Math.random()*6);
+      grid[r][c] = r < FILLED_ROWS ? Math.floor(Math.random()*6) : null;
     }
   }
-  // Add some frozen tiles
-  for(let i=0;i<4;i++){
-    const r=Math.floor(Math.random()*ROWS);
+  // A few frozen tiles in the filled area
+  for(let i=0;i<3;i++){
+    const r=Math.floor(Math.random()*FILLED_ROWS);
     const c=Math.floor(Math.random()*COLS);
     frozenCells.add(`${r},${c}`);
   }
-  // Ensure no immediate matches on start
-  for(let r=0;r<ROWS;r++){
-    for(let c=0;c<COLS;c++){
-      while(hasMatchAt(r,c)){
-        grid[r][c]=Math.floor(Math.random()*6);
-      }
-    }
-  }
+  currentCupcakeColor = Math.floor(Math.random()*6);
   nextCupcakeColor = Math.floor(Math.random()*6);
 }
 
@@ -1032,6 +1101,8 @@ function renderCell(r,c) {
   const s = cellSize;
   const colorIdx = grid[r][c];
 
+  if(colorIdx === null) return; // empty cell — don't draw anything
+
   // Cell bg
   if(frozenCells.has(`${r},${c}`)) {
     ctx.fillStyle='rgba(180,220,255,.5)';
@@ -1058,169 +1129,363 @@ function clearSelected() {
 }
 
 // =============================================
-//  GAME LOGIC
+//  GAME LOGIC — BUBBLE SHOOTER STYLE
 // =============================================
-function onCellClick(r,c) {
-  if(isAnimating) return;
-  if(moves<=0) return;
 
-  // Powerup mode
-  if(activePowerup) {
-    usePowerup(activePowerup,r,c);
+function onCellClick(r, c) {
+  if (isAnimating) return;
+  if (moves <= 0) return;
+
+  if (activePowerup) {
+    usePowerup(activePowerup, r, c);
     return;
   }
 
-  if(selected===null) {
-    selected={r,c};
-    renderSelected();
-    setPrincessExpr('idle');
-  } else {
-    const {r:r1,c:c1}=selected;
-    clearSelected();
-    selected=null;
-    if(r1===r&&c1===c) return;
-    // Must be adjacent
-    if(Math.abs(r-r1)+Math.abs(c-c1)===1) {
-      trySwap(r1,c1,r,c);
-    } else {
-      selected={r,c};
-      renderSelected();
-    }
+  // Hanya bisa klik sel yang kosong (null)
+  if (grid[r][c] !== null) {
+    shakeGrid();
+    return;
   }
+
+  shootCupcake(r, c);
 }
 
-async function trySwap(r1,c1,r2,c2) {
-  isAnimating=true;
-  // Do swap
-  [grid[r1][c1],grid[r2][c2]]=[grid[r2][c2],grid[r1][c1]];
-  renderAllCells();
+async function shootCupcake(targetRow, targetCol) {
+  isAnimating = true;
 
-  const matches = findMatches();
-  if(matches.length===0) {
-    // Swap back
-    await sleep(200);
-    [grid[r1][c1],grid[r2][c2]]=[grid[r2][c2],grid[r1][c1]];
-    renderAllCells();
-    setPrincessExpr('angry');
-    shakeGrid();
-    isAnimating=false;
-    return;
-  }
+  // Animate cupcake flying from princess to the exact clicked cell
+  await animateShot(targetCol, targetRow, currentCupcakeColor);
+
+  // Place cupcake exactly where user clicked
+  grid[targetRow][targetCol] = currentCupcakeColor;
+  renderCell(targetRow, targetCol);
 
   moves--;
   updateHUD();
-  combo=0;
-  await resolveMatches();
-  isAnimating=false;
 
-  if(moves<=0 && score<TARGET_SCORE) {
-    endGame(false);
-  } else if(targetCollected>=targetGoal) {
-    endGame(true);
-  } else {
-    // hint
-    setTimeout(showHint,2000);
-  }
-}
+  // Find connected same-color group (flood fill)
+  const group = getConnectedGroup(targetRow, targetCol, currentCupcakeColor);
+  const nonFrozen = group.filter(g => !g.frozen);
+  const frozen = group.filter(g => g.frozen);
 
-function findMatches() {
-  const matched=new Set();
-  // Horizontal
-  for(let r=0;r<ROWS;r++){
-    for(let c=0;c<COLS-2;c++){
-      if(grid[r][c]!==null&&grid[r][c]===grid[r][c+1]&&grid[r][c]===grid[r][c+2]){
-        let cc=c;
-        while(cc<COLS&&grid[r][cc]===grid[r][c]){matched.add(`${r},${cc}`);cc++;}
-      }
-    }
-  }
-  // Vertical
-  for(let c=0;c<COLS;c++){
-    for(let r=0;r<ROWS-2;r++){
-      if(grid[r][c]!==null&&grid[r][c]===grid[r+1][c]&&grid[r][c]===grid[r+2][c]){
-        let rr=r;
-        while(rr<ROWS&&grid[rr][c]===grid[r][c]){matched.add(`${rr},${c}`);rr++;}
-      }
-    }
-  }
-  return [...matched].map(s=>{const[r,c]=s.split(',');return{r:+r,c:+c};});
-}
-
-async function resolveMatches() {
-  let matches=findMatches();
-  while(matches.length>0) {
+  if (group.length >= 3) {
     combo++;
-    if(combo>=3) showComboText(combo);
+    if (combo >= 3) showComboText(combo);
 
-    // Animate matched cells
-    const gridEl=document.getElementById('game-grid');
-    matches.forEach(({r,c})=>{
-      const cell=gridEl.children[r*COLS+c];
-      if(cell){
-        cell.classList.add('matched');
-        spawnExplosion(cell);
+    const gridEl = document.getElementById('game-grid');
+
+    // Non-frozen cells pop immediately
+    nonFrozen.forEach(({r, c}) => {
+      const cell = gridEl.children[r * COLS + c];
+      if (cell) { cell.classList.add('matched'); spawnExplosion(cell); }
+    });
+
+    // Frozen cells just crack (unfreeze) — flash effect but stay
+    frozen.forEach(({r, c}) => {
+      frozenCells.delete(`${r},${c}`);
+      const cell = gridEl.children[r * COLS + c];
+      if (cell) {
+        cell.style.filter = 'brightness(2)';
+        setTimeout(() => { cell.style.filter = ''; renderCell(r, c); }, 300);
       }
+    });
+
+    await sleep(350);
+
+    const pts = nonFrozen.length * 120 * (combo > 1 ? combo : 1) + frozen.length * 50;
+    score += pts;
+    targetCollected += nonFrozen.length;
+
+    showScorePopup(group, pts);
+    nonFrozen.forEach(({r, c}) => { grid[r][c] = null; });
+
+    await dropDown();
+    await sleep(150);
+    await resolveMatches();
+    updateHUD();
+
+    if (combo >= 3) setPrincessExpr('excited');
+    else setPrincessExpr('happy');
+
+  } else {
+    combo = 0;
+    setPrincessExpr('idle');
+  }
+
+  advanceCupcake();
+  isAnimating = false;
+
+  if (targetCollected >= targetGoal) {
+    endGame(true);
+  } else if (moves <= 0) {
+    endGame(false);
+  } else {
+    setTimeout(showHint, 2000);
+  }
+}
+
+// Flood-fill: get all connected cells with same color starting from (r,c)
+// Returns { group: cells to pop, toUnfreeze: frozen cells adjacent that get cracked }
+function getConnectedGroup(r, c, color) {
+  const visited = new Set();
+  const result = [];
+  const stack = [[r, c]];
+  while (stack.length) {
+    const [cr, cc] = stack.pop();
+    const key = `${cr},${cc}`;
+    if (visited.has(key)) continue;
+    if (cr < 0 || cr >= ROWS || cc < 0 || cc >= COLS) continue;
+    if (grid[cr][cc] !== color) continue;
+    visited.add(key);
+    // Frozen cells count toward group size but are tracked separately
+    result.push({r: cr, c: cc, frozen: frozenCells.has(key)});
+    if (!frozenCells.has(key)) {
+      // Only spread through non-frozen cells
+      stack.push([cr-1,cc],[cr+1,cc],[cr,cc-1],[cr,cc+1]);
+    }
+  }
+  return result;
+}
+
+// Animate cupcake flying from princess up to target cell
+async function animateShot(col, landRow, colorIdx) {
+  return new Promise(resolve => {
+    const gridEl = document.getElementById('game-grid');
+    const targetCell = gridEl.children[landRow * COLS + col];
+    if (!targetCell) { resolve(); return; }
+
+    const targetRect = targetCell.getBoundingClientRect();
+    const princessCanvas = document.getElementById('princess-canvas');
+    const pRect = princessCanvas.getBoundingClientRect();
+
+    const startX = pRect.left + pRect.width / 2;
+    const startY = pRect.top + pRect.height / 2;
+    const endX = targetRect.left + targetRect.width / 2;
+    const endY = targetRect.top + targetRect.height / 2;
+
+    const flyCanvas = document.createElement('canvas');
+    const sz = Math.max(cellSize, 32);
+    flyCanvas.width = sz; flyCanvas.height = sz;
+    flyCanvas.style.cssText = `position:fixed;left:${startX - sz/2}px;top:${startY - sz/2}px;
+      width:${sz}px;height:${sz}px;pointer-events:none;z-index:300;`;
+    document.body.appendChild(flyCanvas);
+
+    const ctx = flyCanvas.getContext('2d');
+    drawCupcake(ctx, sz/2, sz*0.78, sz*0.44, colorIdx);
+
+    const duration = 280;
+    const start = performance.now();
+
+    function step(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+
+      const x = startX + (endX - startX) * ease;
+      // Arc upward — bulge sideways toward target
+      const dx = endX - startX;
+      const dy = endY - startY; // dy is negative (going up)
+      const arcBulge = Math.abs(dx) * 0.4 + Math.abs(dy) * 0.2;
+      const y = startY + dy * ease - arcBulge * Math.sin(Math.PI * t);
+
+      flyCanvas.style.left = (x - sz/2) + 'px';
+      flyCanvas.style.top  = (y - sz/2) + 'px';
+      flyCanvas.style.transform = `rotate(${t * 270}deg)`;
+
+      if (t < 1) requestAnimationFrame(step);
+      else { flyCanvas.remove(); resolve(); }
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+// resolveMatches: after drop-down, check if any new 3-connected groups formed
+async function resolveMatches() {
+  let found = true;
+  while (found) {
+    found = false;
+    // Check every cell — find any group of 3+
+    const popped = new Set();
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] === null) continue;
+        if (popped.has(`${r},${c}`)) continue;
+        const group = getConnectedGroup(r, c, grid[r][c]);
+        if (group.length >= 3) {
+          group.forEach(({r,c}) => popped.add(`${r},${c}`));
+        }
+      }
+    }
+    if (popped.size === 0) break;
+    found = true;
+    combo++;
+
+    const cells = [...popped].map(s => { const [r,c] = s.split(','); return {r:+r, c:+c}; });
+    const gridEl = document.getElementById('game-grid');
+    cells.forEach(({r,c}) => {
+      const cell = gridEl.children[r*COLS+c];
+      if (cell) { cell.classList.add('matched'); spawnExplosion(cell); }
     });
     await sleep(350);
 
-    // Score
-    const pts = matches.length * 100 * (combo>1?combo:1);
+    const pts = cells.length * 120 * (combo > 1 ? combo : 1);
     score += pts;
-    targetCollected += matches.filter(({r,c})=>!frozenCells.has(`${r},${c}`)).length;
+    targetCollected += cells.length;
+    showScorePopup(cells, pts);
+    cells.forEach(({r,c}) => { grid[r][c] = null; });
 
-    // Unfreeze adjacent frozen cells
-    matches.forEach(({r,c})=>{
-      [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].forEach(([nr,nc])=>{
-        if(frozenCells.has(`${nr},${nc}`)) frozenCells.delete(`${nr},${nc}`);
-      });
-    });
-
-    showScorePopup(matches, pts);
-
-    // Clear matched
-    matches.forEach(({r,c})=>{ grid[r][c]=null; });
-
-    // Drop down
     await dropDown();
     await sleep(150);
-
-    matches=findMatches();
     updateHUD();
-
-    // Princess expression
-    if(combo>=3) setPrincessExpr('excited');
-    else if(matches.length>5) setPrincessExpr('happy');
-    else setPrincessExpr('wink');
   }
-  if(combo===0) setPrincessExpr('idle');
 }
 
+// =============================================
+//  HELPER FUNCTIONS
+// =============================================
 async function dropDown() {
+  // Gravity: cupcakes float UP → empty slots sink to BOTTOM (Puzzle Bobble style)
   for(let c=0;c<COLS;c++){
-    let empty=[];
-    for(let r=ROWS-1;r>=0;r--){
-      if(grid[r][c]===null) empty.push(r);
-      else if(empty.length>0){
-        const er=empty.shift();
-        grid[er][c]=grid[r][c];
-        grid[r][c]=null;
-        empty.push(r);
-      }
-    }
-    // Fill from top
+    // Collect all non-null values top-to-bottom
+    let values = [];
     for(let r=0;r<ROWS;r++){
-      if(grid[r][c]===null){
-        grid[r][c]=Math.floor(Math.random()*6);
-      }
+      if(grid[r][c] !== null) values.push(grid[r][c]);
+    }
+    // Fill from top: filled cells stay at top, nulls at bottom
+    for(let r=0;r<ROWS;r++){
+      grid[r][c] = r < values.length ? values[r] : null;
     }
   }
   buildGrid();
-  // Animate new cells
   document.querySelectorAll('.cell').forEach(cell=>{
     cell.classList.add('falling');
     setTimeout(()=>cell.classList.remove('falling'),300);
   });
   await sleep(250);
+}
+
+function shakeGrid() {
+  const gridEl=document.getElementById('game-grid');
+  gridEl.style.animation='none';
+  gridEl.offsetHeight;
+  gridEl.style.animation='shakeAnim .3s ease';
+  setTimeout(()=>gridEl.style.animation='',300);
+}
+
+function endGame(win) {
+  setTimeout(()=>{
+    if(win) {
+      setPrincessExpr('excited');
+      document.getElementById('win-score').textContent='Score: '+score.toLocaleString();
+      document.getElementById('win-overlay').classList.add('show');
+      const c=document.getElementById('win-princess');
+      drawPrincess(c.getContext('2d'),c.width,c.height,'excited');
+    } else {
+      setPrincessExpr('crying');
+      document.getElementById('lose-score').textContent='Score: '+score.toLocaleString();
+      document.getElementById('lose-overlay').classList.add('show');
+      const c=document.getElementById('lose-princess');
+      drawPrincess(c.getContext('2d'),c.width,c.height,'crying');
+    }
+  },500);
+}
+
+function showComboText(n) {
+  const existing=document.querySelector('.combo-text');
+  if(existing) existing.remove();
+  const el=document.createElement('div');
+  el.className='combo-text';
+  const labels={3:'Triple! 🔥',4:'Mega! 💥',5:'ULTRA! ⚡',6:'LEGENDARY! 🌟'};
+  el.textContent=labels[Math.min(n,6)]||`${n}x COMBO! ✨`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),1000);
+}
+
+function showScorePopup(cells, pts) {
+  if(!cells.length) return;
+  const r=cells[0].r, c=cells[0].c;
+  const gridEl=document.getElementById('game-grid');
+  const cell=gridEl.children[r*COLS+c];
+  if(!cell) return;
+  const rect=cell.getBoundingClientRect();
+  const el=document.createElement('div');
+  el.className='score-popup';
+  el.textContent='+'+pts.toLocaleString();
+  el.style.left=rect.left+'px';
+  el.style.top=rect.top+'px';
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),1200);
+}
+
+function spawnExplosion(cell) {
+  const rect=cell.getBoundingClientRect();
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  const emojis=['✨','💗','🌸','⭐','🎀'];
+  for(let i=0;i<6;i++){
+    const p=document.createElement('div');
+    p.className='explosion-particle';
+    p.textContent=emojis[Math.floor(Math.random()*emojis.length)];
+    const angle=Math.random()*Math.PI*2;
+    const dist=40+Math.random()*40;
+    p.style.setProperty('--tx',Math.cos(angle)*dist+'px');
+    p.style.setProperty('--ty',Math.sin(angle)*dist+'px');
+    p.style.left=cx+'px'; p.style.top=cy+'px';
+    document.body.appendChild(p);
+    setTimeout(()=>p.remove(),700);
+  }
+}
+
+function showHint() {
+  if(isAnimating||moves<=0) return;
+  document.querySelectorAll('.cell.hint').forEach(el=>el.classList.remove('hint'));
+  document.querySelectorAll('.hint-arrow').forEach(el=>el.remove());
+
+  // Find the best empty cell: placing currentCupcakeColor there gives biggest group
+  let bestR=-1, bestC=-1, bestScore=0;
+
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(grid[r][c] !== null) continue; // only empty cells
+      // Simulate placement
+      grid[r][c] = currentCupcakeColor;
+      const group = getConnectedGroup(r, c, currentCupcakeColor);
+      grid[r][c] = null;
+      if(group.length > bestScore){
+        bestScore = group.length;
+        bestR = r; bestC = c;
+      }
+    }
+  }
+
+  if(bestR === -1) return;
+
+  const gridEl = document.getElementById('game-grid');
+  const cell = gridEl.children[bestR * COLS + bestC];
+  if(!cell) return;
+
+  // Show arrow pointing to the best cell
+  const rect = cell.getBoundingClientRect();
+  const arrow = document.createElement('div');
+  arrow.className = 'hint-arrow';
+  arrow.textContent = '✨';
+  arrow.style.cssText = `position:fixed;left:${rect.left+rect.width/2}px;top:${rect.top+rect.height/2}px;
+    transform:translate(-50%,-50%);font-size:26px;z-index:200;pointer-events:none;
+    animation:hintArrow .5s ease-in-out infinite alternate;`;
+  document.body.appendChild(arrow);
+
+  // Also highlight the same-color neighbors that would form the group
+  grid[bestR][bestC] = currentCupcakeColor;
+  const group = getConnectedGroup(bestR, bestC, currentCupcakeColor);
+  grid[bestR][bestC] = null;
+  group.forEach(({r,c})=>{
+    const gc = gridEl.children[r*COLS+c];
+    if(gc) gc.classList.add('hint');
+  });
+  cell.classList.add('hint');
+
+  setTimeout(()=>{
+    arrow.remove();
+    document.querySelectorAll('.cell.hint').forEach(el=>el.classList.remove('hint'));
+  },2500);
 }
 
 function usePowerup(type, r, c) {
@@ -1237,17 +1502,14 @@ function usePowerup(type, r, c) {
 
   const affected=[];
   if(type==='rainbow') {
-    // Clear entire row + col
     for(let cc=0;cc<COLS;cc++) affected.push({r,c:cc});
     for(let rr=0;rr<ROWS;rr++) if(rr!==r) affected.push({r:rr,c});
   } else if(type==='bomb') {
-    // 3x3 explosion
     for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
       const nr=r+dr,nc=c+dc;
       if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS) affected.push({r:nr,c:nc});
     }
   } else if(type==='roller') {
-    // Clear entire row
     for(let cc=0;cc<COLS;cc++) affected.push({r,c:cc});
   }
 
@@ -1285,9 +1547,6 @@ function activatePowerup(type) {
   }
 }
 
-// =============================================
-//  UI UPDATES
-// =============================================
 function updateHUD() {
   document.getElementById('moves-val').textContent=moves;
   document.getElementById('score-val').textContent=score.toLocaleString();
@@ -1308,121 +1567,13 @@ function setPrincessExpr(expr) {
   currentExpr=expr;
   const canvas=document.getElementById('princess-canvas');
   if(canvas) drawPrincess(canvas.getContext('2d'),canvas.width,canvas.height,expr);
-  // Also update modal canvases if visible
-  const wc=document.getElementById('win-princess');
-  if(wc&&document.getElementById('win-overlay').classList.contains('show'))
-    drawPrincess(wc.getContext('2d'),wc.width,wc.height,'excited');
-  const lc=document.getElementById('lose-princess');
-  if(lc&&document.getElementById('lose-overlay').classList.contains('show'))
-    drawPrincess(lc.getContext('2d'),lc.width,lc.height,'crying');
-
   if(exprTimer) clearTimeout(exprTimer);
-  if(expr!=='idle'&&expr!=='happy') {
+  if(expr!=='idle'&&expr!=='happy'){
     exprTimer=setTimeout(()=>setPrincessExpr('idle'),2000);
   }
 }
 
-function showHint() {
-  if(isAnimating||moves<=0) return;
-  // Find a valid move
-  for(let r=0;r<ROWS;r++){
-    for(let c=0;c<COLS;c++){
-      const swaps=[[r,c+1],[r+1,c]];
-      for(const[r2,c2] of swaps){
-        if(r2>=ROWS||c2>=COLS) continue;
-        [grid[r][c],grid[r2][c2]]=[grid[r2][c2],grid[r][c]];
-        const m=findMatches();
-        [grid[r][c],grid[r2][c2]]=[grid[r2][c2],grid[r][c]];
-        if(m.length>0){
-          const gridEl=document.getElementById('game-grid');
-          const cell1=gridEl.children[r*COLS+c];
-          const cell2=gridEl.children[r2*COLS+c2];
-          cell1?.classList.add('hint');
-          cell2?.classList.add('hint');
-          setTimeout(()=>{
-            cell1?.classList.remove('hint');
-            cell2?.classList.remove('hint');
-          },2000);
-          return;
-        }
-      }
-    }
-  }
-}
 
-function showScorePopup(cells, pts) {
-  if(!cells.length) return;
-  const r=cells[0].r, c=cells[0].c;
-  const gridEl=document.getElementById('game-grid');
-  const cell=gridEl.children[r*COLS+c];
-  if(!cell) return;
-  const rect=cell.getBoundingClientRect();
-  const popup=document.createElement('div');
-  popup.className='score-popup';
-  popup.textContent='+'+pts;
-  popup.style.left=rect.left+'px';
-  popup.style.top=rect.top+'px';
-  document.body.appendChild(popup);
-  setTimeout(()=>popup.remove(),1200);
-}
-
-function spawnExplosion(cell) {
-  const rect=cell.getBoundingClientRect();
-  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
-  const emojis=['✨','💫','🌸','⭐','💗','🎀'];
-  for(let i=0;i<6;i++){
-    const p=document.createElement('div');
-    p.className='explosion-particle';
-    p.textContent=emojis[Math.floor(Math.random()*emojis.length)];
-    const angle=Math.random()*Math.PI*2;
-    const dist=40+Math.random()*40;
-    p.style.setProperty('--tx',Math.cos(angle)*dist+'px');
-    p.style.setProperty('--ty',Math.sin(angle)*dist+'px');
-    p.style.left=cx+'px'; p.style.top=cy+'px';
-    document.body.appendChild(p);
-    setTimeout(()=>p.remove(),700);
-  }
-}
-
-function showComboText(n) {
-  const existing=document.querySelector('.combo-text');
-  if(existing) existing.remove();
-  const el=document.createElement('div');
-  el.className='combo-text';
-  const labels={3:'Triple! 🔥',4:'Mega! 💥',5:'ULTRA! ⚡',6:'LEGENDARY! 🌟'};
-  el.textContent=labels[Math.min(n,6)]||`${n}x COMBO! ✨`;
-  document.body.appendChild(el);
-  setTimeout(()=>el.remove(),1000);
-}
-
-function shakeGrid() {
-  const gridEl=document.getElementById('game-grid');
-  gridEl.style.animation='none';
-  gridEl.offsetHeight;
-  gridEl.style.animation='shakeAnim .3s ease';
-  setTimeout(()=>gridEl.style.animation='',300);
-}
-
-function endGame(win) {
-  setTimeout(()=>{
-    if(win) {
-      setPrincessExpr('excited');
-      document.getElementById('win-score').textContent='Score: '+score.toLocaleString();
-      document.getElementById('win-overlay').classList.add('show');
-      const c=document.getElementById('win-princess');
-      drawPrincess(c.getContext('2d'),c.width,c.height,'excited');
-    } else {
-      setPrincessExpr('crying');
-      document.getElementById('lose-score').textContent='Score: '+score.toLocaleString();
-      document.getElementById('lose-overlay').classList.add('show');
-      const c=document.getElementById('lose-princess');
-      drawPrincess(c.getContext('2d'),c.width,c.height,'crying');
-    }
-  },500);
-}
-
-// =============================================
-//  BACKGROUND DRAWING
 // =============================================
 function drawBackground() {
   const canvas=document.getElementById('bg-canvas');
@@ -1547,11 +1698,14 @@ function drawBackground() {
 function startGame() {
   document.getElementById('title-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
-  score=0; moves=TOTAL_MOVES; combo=0; targetCollected=0; targetGoal=30+(level-1)*10;
+  score=0; moves=TOTAL_MOVES+(level-1)*5; combo=0; targetCollected=0;
   powerupInventory={rainbow:3,bomb:2,roller:2};
   activePowerup=null;
   drawBackground();
   initGrid();
+  // targetGoal = total non-null cells in grid (clear them all to win)
+  targetGoal = 0;
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(grid[r][c]!==null) targetGoal++;
   buildGrid();
   updateHUD();
   updatePowerupUI();
@@ -1561,11 +1715,25 @@ function startGame() {
 }
 
 function renderNextCupcake() {
+  // Render current (active) cupcake
+  const cur=document.getElementById('current-canvas');
+  if(cur) {
+    const ctx=cur.getContext('2d');
+    ctx.clearRect(0,0,cur.width,cur.height);
+    drawCupcake(ctx,cur.width/2,cur.height*.82,cur.width*.46,currentCupcakeColor);
+  }
+  // Render next cupcake (smaller, faded)
   const c=document.getElementById('next-canvas');
   if(!c) return;
   const ctx=c.getContext('2d');
   ctx.clearRect(0,0,c.width,c.height);
   drawCupcake(ctx,c.width/2,c.height*.82,c.width*.46,nextCupcakeColor);
+}
+
+function advanceCupcake() {
+  currentCupcakeColor = nextCupcakeColor;
+  nextCupcakeColor = Math.floor(Math.random()*6);
+  renderNextCupcake();
 }
 
 function nextLevel() {
